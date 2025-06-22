@@ -29,11 +29,7 @@ pip install -r requirements.txt
 
 ### 3. 動作テスト
 ```bash
-# 基本テスト
 python main.py
-
-# 改良版テスト  
-python main_improved.py
 ```
 
 ## 📋 貢献の種類
@@ -64,13 +60,12 @@ python main_improved.py
 ### ファイル構成
 ```
 project/
-├── main.py              # 基本版メインプログラム
-├── main_improved.py     # 改良版メインプログラム  
-├── step*.py            # 開発段階ファイル（学習用）
-├── requirements.txt    # 依存関係
-├── README.md          # メインドキュメント
-├── CONTRIBUTING.md    # このファイル
-└── target/           # テスト用ファイル配置
+├── main.py            # メインプログラム
+├── step*.py          # 開発段階ファイル（学習用）
+├── requirements.txt  # 依存関係
+├── README.md        # メインドキュメント
+├── CONTRIBUTING.md  # このファイル
+└── target/         # テスト用ファイル配置
 ```
 
 ### 新機能追加時のチェックリスト
@@ -85,7 +80,7 @@ project/
 ### 基本テスト
 ```bash
 # サンプルファイルでテスト
-python main_improved.py
+python main.py
 ```
 
 ### エラーテスト

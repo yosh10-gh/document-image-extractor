@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-メインプログラム: 文書画像抽出システム
-targetディレクトリを再帰的にクロールし、.docxと.pdfファイルから画像を抽出してresult.xlsxに出力
+改良版メインプログラム: 文書画像抽出システム
+targetディレクトリを再帰的にクロールし、.docxと.pdfファイルから全ての画像を抽出してresult.xlsxに出力
 """
 
 from pathlib import Path
@@ -159,24 +159,26 @@ def save_image_to_bytes(image: Image.Image) -> io.BytesIO:
     img_buffer.seek(0)
     return img_buffer
 
-# ===== Excel出力機能 =====
+# ===== Excel出力機能（改良版） =====
 def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str = "result.xlsx") -> None:
-    """ファイル情報と画像データをExcelファイルに出力"""
+    """ファイル情報と画像データをExcelファイルに出力（全画像対応）"""
     try:
         wb = Workbook()
         ws = wb.active
         ws.title = "ファイルと画像の一覧"
         
-        # ヘッダー設定
-        headers = ["ファイルパス", "画像1", "画像2", "画像3"]
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = Font(bold=True, size=12)
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+        # 最大画像数を取得
+        max_images = max((len(f.get('images', [])) for f in file_data), default=0)
+        
+        # ヘッダー設定（シンプル版）
+        ws.cell(row=1, column=1, value="ファイルパス").font = Font(bold=True, size=12)
+        ws.cell(row=1, column=1).alignment = Alignment(horizontal='center', vertical='center')
         
         # 列幅設定
-        ws.column_dimensions['A'].width = 60
-        for col in range(2, 5):
+        ws.column_dimensions['A'].width = 60  # ファイルパス列
+        
+        # 画像列の幅設定（B列以降）
+        for col in range(2, 2 + max_images):
             col_letter = get_column_letter(col)
             ws.column_dimensions[col_letter].width = 15
         
@@ -187,13 +189,10 @@ def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str =
             file_path_cell = ws.cell(row=current_row, column=1, value=str(file_info['file_path']))
             file_path_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
             
-            # 画像設定（最大3枚）
+            # 全ての画像を設定
             images = file_info.get('images', [])
-            max_images = min(len(images), 3)
             
-            for img_index in range(max_images):
-                img_info = images[img_index]
-                
+            for img_index, img_info in enumerate(images):
                 try:
                     resized_image = resize_image_for_excel(img_info['image'], 100)
                     img_buffer = save_image_to_bytes(resized_image)
@@ -201,13 +200,15 @@ def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str =
                     excel_img.width = 100
                     excel_img.height = 100
                     
+                    # B列から順番に配置（B=2, C=3, D=4, E=5...）
                     target_column = img_index + 2
                     cell_position = f"{get_column_letter(target_column)}{current_row}"
                     ws.add_image(excel_img, cell_position)
                     
                 except Exception as e:
+                    # 画像エラーの場合もセルに記録
                     error_cell = ws.cell(row=current_row, column=img_index + 2, 
-                                       value=f"画像エラー: {str(e)[:20]}...")
+                                       value=f"エラー")
                     error_cell.alignment = Alignment(horizontal='center', vertical='center')
             
             # 行の高さ設定（100px ≈ 75ポイント）
@@ -216,6 +217,7 @@ def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str =
         
         wb.save(output_path)
         print(f"Excelファイルが正常に作成されました: {output_path}")
+        print(f"最大画像数: {max_images} 枚/ファイル")
         
     except Exception as e:
         raise Exception(f"Excel出力中にエラーが発生しました: {e}")
@@ -224,8 +226,8 @@ def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str =
 def main():
     """メイン処理"""
     print("=" * 60)
-    print("           文書画像抽出システム")
-    print("  .docx/.pdfファイルから画像を抽出してExcel出力")
+    print("       改良版文書画像抽出システム")
+    print("  .docx/.pdfファイルから全画像を抽出してExcel出力")
     print("=" * 60)
     
     target_directory = "target"
@@ -308,7 +310,7 @@ def main():
         print(f"   出力ファイル: {output_file}")
         print("\n📋 結果の確認:")
         print(f"   {output_file} を開いて結果を確認してください。")
-        print(f"   各行のA列にファイルパス、B/C/D列に画像（100x100px）が表示されます。")
+        print(f"   A列にファイルパス、B列以降に全ての画像（100x100px）が表示されます。")
         
     except Exception as e:
         print(f"\n❌ エラーが発生しました: {e}")
