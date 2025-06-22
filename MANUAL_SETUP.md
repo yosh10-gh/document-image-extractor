@@ -19,6 +19,7 @@
 - **Python 3.12.10** (Windows x86-64)
 - ダウンロード先: [https://www.python.org/downloads/release/python-31210/](https://www.python.org/downloads/release/python-31210/)
 - ファイル名: `python-3.12.10-amd64.exe`
+- ⚠️ **重要**: 「Windows installer (64-bit)」を選択してください
 
 #### 2. プロジェクトファイル
 - **GitHub ZIP**: [https://github.com/yosh10-gh/document-image-extractor/archive/refs/heads/main.zip](https://github.com/yosh10-gh/document-image-extractor/archive/refs/heads/main.zip)
@@ -45,7 +46,9 @@
 
 **依存関係ライブラリ:**
 - `lxml-5.4.0-cp312-cp312-win_amd64.whl` (python-docxの依存)
+- ダウンロード: [https://pypi.org/project/lxml/5.4.0/#files](https://pypi.org/project/lxml/5.4.0/#files)
 - `et_xmlfile-2.0.0-py3-none-any.whl` (openpyxlの依存)
+- ダウンロード: [https://pypi.org/project/et-xmlfile/2.0.0/#files](https://pypi.org/project/et-xmlfile/2.0.0/#files)
 
 ## 💻 Python環境の手動セットアップ
 
@@ -112,6 +115,16 @@
 ### ステップ2: wheelファイルから手動インストール
 
 **事前にダウンロードしたwheelファイルをプロジェクトフォルダに配置してから実行:**
+
+⚠️ **wheelファイルの配置場所**: 
+```
+C:\document-image-extractor\
+├── main.py
+├── python_docx-1.1.2-py3-none-any.whl        ← ここに配置
+├── PyMuPDF-1.24.12-cp312-cp312-win_amd64.whl ← ここに配置
+├── (その他のwheelファイルも同様)
+└── venv\
+```
 
 ```cmd
 # 基本ライブラリのインストール
@@ -199,23 +212,27 @@ pip install --no-deps --find-links . python_docx-1.1.2-py3-none-any.whl
 pip install --no-index --find-links . --trusted-host pypi.org --trusted-host pypi.python.org パッケージ名
 ```
 
-## 📁 ファイル配置例
+## 📁 最終的なファイル配置例
 
 ```
 C:\document-image-extractor\
 ├── main.py                                          # メインプログラム
 ├── requirements.txt                                 # 依存関係一覧
+├── README.md                                        # 使用方法
+├── MANUAL_SETUP.md                                  # このファイル
+├── LICENSE                                          # ライセンス
+├── CONTRIBUTING.md                                  # 貢献ガイド
 ├── target\                                         # 処理対象ファイル配置フォルダ
+│   └── samples\                                    # サンプルファイル
 ├── venv\                                          # 仮想環境（作成される）
 ├── result.xlsx                                    # 結果ファイル（生成される）
 │
-└── wheels\                                        # ダウンロードしたwheelファイル
-    ├── python_docx-1.1.2-py3-none-any.whl
-    ├── PyMuPDF-1.24.12-cp312-cp312-win_amd64.whl
-    ├── pillow-11.0.0-cp312-cp312-win_amd64.whl
-    ├── openpyxl-3.1.5-py2.py3-none-any.whl
-    ├── lxml-5.4.0-cp312-cp312-win_amd64.whl
-    └── et_xmlfile-2.0.0-py3-none-any.whl
+├── python_docx-1.1.2-py3-none-any.whl            # ダウンロードしたwheelファイル
+├── PyMuPDF-1.24.12-cp312-cp312-win_amd64.whl
+├── pillow-11.0.0-cp312-cp312-win_amd64.whl
+├── openpyxl-3.1.5-py2.py3-none-any.whl
+├── lxml-5.4.0-cp312-cp312-win_amd64.whl
+└── et_xmlfile-2.0.0-py3-none-any.whl
 ```
 
 ## 🎯 実際の使用方法
