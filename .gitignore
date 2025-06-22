@@ -1,0 +1,85 @@
+# Python仮想環境
+venv/
+.venv/
+env/
+ENV/
+
+# Python関連
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# IDE・エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS生成ファイル
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+Desktop.ini
+$RECYCLE.BIN/
+
+# 結果ファイル（サンプルとして残すかコメントアウト）
+# result.xlsx
+# result_all_images.xlsx
+# test_result.xlsx
+
+# 一時ファイル・ロックファイル
+~$*.xlsx
+~$*.docx
+~$*.pptx
+
+# ログファイル
+*.log
+
+# 機密情報
+.env
+config.ini
+secrets.txt
+
+# テスト用大量画像（オプション）
+test_images/
+large_test_files/
+
+# PyCharmプロジェクトファイル
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version 
