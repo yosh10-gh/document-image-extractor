@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-商業利用対応版: 文書画像抽出システム
+高性能版: 文書画像抽出システム (PyMuPDF版)
 targetディレクトリを再帰的にクロールし、.docxと.pdfファイルから全ての画像を抽出してresult.xlsxに出力
+
+【使用状況】
+バックオフィス内部使用向け - 最高性能重視
 
 【ライセンス情報】
 使用ライブラリ:
-- python-docx: Apache 2.0 License (商業利用可能)
-- pdfplumber: MIT License (商業利用可能)
-- Pillow: HPND License (商業利用可能)
-- openpyxl: MIT License (商業利用可能)
+- python-docx: Apache 2.0 License
+- PyMuPDF: AGPL v3 License (内部使用)
+- Pillow: HPND License
+- openpyxl: MIT License
 
-全て商業利用可能なライブラリのみを使用しています。
+※ PyMuPDF (AGPL v3) は内部使用目的のため、外部配布しない限り法的問題なし
 """
 
 from pathlib import Path
@@ -21,78 +24,74 @@ import io
 import time
 from PIL import Image
 from docx import Document
-import pdfplumber  # 商業利用可能な代替ライブラリ (MIT License)
+import fitz  # PyMuPDF - 最高性能PDF処理ライブラリ
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 
 # ===== ファイルクロール機能 =====
-def find_files(target_dir: str, extensions: tuple = ('.docx', '.pdf')) -> List[Path]:
-    """指定ディレクトリを再帰的に検索し、指定拡張子のファイルを収集"""
-    target_path = Path(target_dir)
+def crawl_files(target_dir: Path, extensions: tuple = ('.docx', '.pdf')) -> List[Path]:
+    """targetディレクトリを再帰的にクロールし、指定された拡張子のファイルを取得"""
+    if not target_dir.exists():
+        raise FileNotFoundError(f"ディレクトリが見つかりません: {target_dir}")
     
-    if not target_path.exists():
-        raise FileNotFoundError(f"指定されたディレクトリが見つかりません: {target_dir}")
-    
-    if not target_path.is_dir():
-        raise NotADirectoryError(f"指定されたパスはディレクトリではありません: {target_dir}")
-    
-    found_files = []
-    
+    files = []
     for extension in extensions:
-        pattern = f"**/*{extension}"
-        files = list(target_path.rglob(pattern))
-        found_files.extend(files)
+        # 再帰的に検索
+        files.extend(target_dir.rglob(f"*{extension}"))
     
-    # 重複を除去し、パスでソート
-    found_files = sorted(list(set(found_files)))
-    
-    return found_files
+    # パス順でソート
+    return sorted(files)
 
-# ===== 画像抽出機能（.docx） =====
+# ===== 画像抽出機能（.docx）=====
 def extract_images_from_docx(docx_path: Path) -> List[Dict[str, Any]]:
     """.docxファイルから画像を抽出"""
     if not docx_path.exists():
         raise FileNotFoundError(f"ファイルが見つかりません: {docx_path}")
     
     try:
-        doc = Document(docx_path)
         images = []
-        rels = doc.part.rels
-        image_index = 0
+        doc = Document(docx_path)
         
-        for rel_id, rel in rels.items():
-            if "image" in rel.target_part.content_type:
+        # 文書内の画像関係を取得
+        image_index = 0
+        for rel in doc.part.rels:
+            relationship = doc.part.rels[rel]
+            if "image" in relationship.target_ref:
                 try:
-                    image_data = rel.target_part.blob
-                    image_stream = io.BytesIO(image_data)
-                    pil_image = Image.open(image_stream)
+                    # 画像データを取得
+                    image_data = relationship.target_part.blob
                     
-                    image_info = {
-                        'image': pil_image.copy(),
-                        'format': pil_image.format or 'UNKNOWN',
-                        'size': pil_image.size,
-                        'index': image_index,
-                        'source_type': 'docx'
-                    }
+                    # PIL Imageとして読み込み
+                    image = Image.open(io.BytesIO(image_data))
                     
-                    images.append(image_info)
+                    images.append({
+                        'file_path': docx_path,
+                        'page_number': 1,  # Wordは単一ページとして扱う
+                        'image_index': image_index,
+                        'data': image_data,
+                        'format': image.format or 'Unknown',
+                        'size': image.size,
+                        'mode': image.mode
+                    })
+                    
                     image_index += 1
-                    image_stream.close()
+                    print(f"    画像 {image_index}: {image.format} {image.size} {image.mode}")
                     
                 except Exception as e:
-                    print(f"警告: DOCX画像 {rel_id} の処理中にエラー: {e}")
+                    print(f"    警告: 画像の読み込みに失敗 - {e}")
                     continue
-                    
+        
+        return images
+        
     except Exception as e:
-        raise Exception(f"DOCX ファイルの処理中にエラーが発生しました: {e}")
-    
-    return images
+        print(f"エラー: .docxファイルの処理に失敗 - {e}")
+        return []
 
-# ===== 画像抽出機能（.pdf）- pdfplumber版 =====
+# ===== 画像抽出機能（.pdf）- PyMuPDF版 =====
 def extract_images_from_pdf(pdf_path: Path) -> List[Dict[str, Any]]:
-    """.pdfファイルから画像を抽出 (pdfplumber使用 - 商業利用可能)"""
+    """.pdfファイルから画像を抽出 (PyMuPDF使用 - 最高性能)"""
     if not pdf_path.exists():
         raise FileNotFoundError(f"ファイルが見つかりません: {pdf_path}")
     
@@ -100,264 +99,208 @@ def extract_images_from_pdf(pdf_path: Path) -> List[Dict[str, Any]]:
         images = []
         image_index = 0
         
-        with pdfplumber.open(pdf_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
+        # PyMuPDFでPDFを開く
+        pdf_doc = fitz.open(pdf_path)
+        
+        # 全ページをループして画像を抽出
+        for page_num in range(len(pdf_doc)):
+            page = pdf_doc[page_num]
+            print(f"    ページ {page_num + 1}/{len(pdf_doc)} を処理中...")
+            
+            # ページ内の画像リストを取得
+            image_list = page.get_images(full=True)
+            
+            for img_index, img in enumerate(image_list):
                 try:
-                    # pdfplumberで画像オブジェクトを取得
-                    for img_obj in page.images:
-                        try:
-                            # 画像のストリームデータを取得
-                            if hasattr(img_obj, 'stream') and img_obj['stream']:
-                                # 画像ストリームから画像データを抽出
-                                img_data = page.within_bbox(
-                                    (img_obj['x0'], img_obj['top'], 
-                                     img_obj['x1'], img_obj['bottom'])
-                                ).to_image(resolution=150)
-                                
-                                # PIL Imageに変換
-                                pil_image = img_data.original
-                                
-                                # カラーモード正規化
-                                if pil_image.mode not in ('RGB', 'RGBA'):
-                                    if pil_image.mode == 'CMYK':
-                                        pil_image = pil_image.convert('RGB')
-                                    elif pil_image.mode in ('P', 'L'):
-                                        pil_image = pil_image.convert('RGB')
-                                
-                                image_info = {
-                                    'image': pil_image.copy(),
-                                    'format': 'PNG',  # pdfplumberはPNG出力
-                                    'size': pil_image.size,
-                                    'index': image_index,
-                                    'page': page_num + 1,
-                                    'source_type': 'pdf'
-                                }
-                                
-                                images.append(image_info)
-                                image_index += 1
-                                
-                        except Exception as e:
-                            print(f"警告: PDF画像 (ページ {page_num + 1}) の処理中にエラー: {e}")
-                            continue
-                            
-                    # 代替方法: ページ全体を画像化して切り出し
-                    if not page.images:
-                        try:
-                            # ページ全体を画像化
-                            page_image = page.to_image(resolution=150)
-                            pil_image = page_image.original
-                            
-                            # 空白でない領域があるかチェック
-                            bbox = pil_image.getbbox()
-                            if bbox and (bbox[2] - bbox[0]) > 50 and (bbox[3] - bbox[1]) > 50:
-                                # 意味のあるサイズの画像があると判断
-                                image_info = {
-                                    'image': pil_image.copy(),
-                                    'format': 'PNG',
-                                    'size': pil_image.size,
-                                    'index': image_index,
-                                    'page': page_num + 1,
-                                    'source_type': 'pdf_page'
-                                }
-                                
-                                images.append(image_info)
-                                image_index += 1
-                                
-                        except Exception as e:
-                            print(f"警告: ページ画像化 (ページ {page_num + 1}) でエラー: {e}")
-                            continue
-                            
+                    # 画像参照情報を取得
+                    xref = img[0]  # 画像のxref番号
+                    
+                    # 画像データを抽出
+                    base_image = pdf_doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    
+                    # PIL Imageとして確認
+                    pil_image = Image.open(io.BytesIO(image_bytes))
+                    
+                    images.append({
+                        'file_path': pdf_path,
+                        'page_number': page_num + 1,
+                        'image_index': image_index,
+                        'data': image_bytes,
+                        'format': image_ext.upper(),
+                        'size': pil_image.size,
+                        'mode': pil_image.mode
+                    })
+                    
+                    image_index += 1
+                    print(f"      画像 {image_index}: {image_ext.upper()} {pil_image.size} {pil_image.mode}")
+                    
                 except Exception as e:
-                    print(f"警告: PDFページ {page_num + 1} の処理中にエラー: {e}")
+                    print(f"      警告: 画像 {img_index} の抽出に失敗 - {e}")
                     continue
         
+        pdf_doc.close()
+        return images
+        
     except Exception as e:
-        raise Exception(f"PDF ファイルの処理中にエラーが発生しました: {e}")
-    
-    return images
+        print(f"エラー: .pdfファイルの処理に失敗 - {e}")
+        return []
 
 # ===== 画像リサイズ機能 =====
-def resize_image_for_excel(image: Image.Image, target_size: int = 100) -> Image.Image:
-    """画像を100x100pxにリサイズ（アスペクト比維持）"""
-    image.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
-    
-    resized = Image.new('RGB', (target_size, target_size), (255, 255, 255))
-    offset = ((target_size - image.size[0]) // 2, (target_size - image.size[1]) // 2)
-    
-    if image.mode == 'RGBA':
-        resized.paste(image, offset, image)
-    else:
-        resized.paste(image, offset)
-    
-    return resized
-
-def save_image_to_bytes(image: Image.Image) -> io.BytesIO:
-    """PIL ImageをBytesIOに変換"""
-    img_buffer = io.BytesIO()
-    image.save(img_buffer, format='PNG')
-    img_buffer.seek(0)
-    return img_buffer
-
-# ===== Excel出力機能（改良版） =====
-def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str = "result.xlsx") -> None:
-    """ファイル情報と画像データをExcelファイルに出力（全画像対応）"""
+def resize_image_for_excel(image_bytes: bytes, target_width: int = 100, target_height: int = 100) -> Optional[io.BytesIO]:
+    """画像をExcel用にリサイズ（バイト→バイト）"""
     try:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "ファイルと画像の一覧"
-        
-        # 最大画像数を取得
-        max_images = max((len(f.get('images', [])) for f in file_data), default=0)
-        
-        # ヘッダー設定（シンプル版）
-        ws.cell(row=1, column=1, value="ファイルパス").font = Font(bold=True, size=12)
-        ws.cell(row=1, column=1).alignment = Alignment(horizontal='center', vertical='center')
-        
-        # 列幅設定
-        ws.column_dimensions['A'].width = 60  # ファイルパス列
-        
-        # 画像列の幅設定（B列以降）
-        for col in range(2, 2 + max_images):
-            col_letter = get_column_letter(col)
-            ws.column_dimensions[col_letter].width = 15
-        
-        current_row = 2
-        
-        for file_info in file_data:
-            # ファイルパス設定
-            file_path_cell = ws.cell(row=current_row, column=1, value=str(file_info['file_path']))
-            file_path_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        # バイトデータからPIL画像を作成
+        image_buffer = io.BytesIO(image_bytes)
+        with Image.open(image_buffer) as img:
+            # RGBAまたはRGB形式に変換
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGB')
             
-            # 全ての画像を設定
-            images = file_info.get('images', [])
+            # アスペクト比を保持してリサイズ
+            img.thumbnail((target_width, target_height), Image.Resampling.LANCZOS)
             
-            for img_index, img_info in enumerate(images):
+            # 透明な背景で中央に配置（100x100pxの画像を作成）
+            new_img = Image.new('RGB', (target_width, target_height), (255, 255, 255))  # 白背景
+            
+            # 中央に配置
+            x = (target_width - img.width) // 2
+            y = (target_height - img.height) // 2
+            new_img.paste(img, (x, y))
+            
+            # バイトストリームに保存
+            output_buffer = io.BytesIO()
+            new_img.save(output_buffer, format='PNG')
+            output_buffer.seek(0)
+            return output_buffer
+            
+    except Exception as e:
+        print(f"画像リサイズエラー: {e}")
+        return None
+
+# ===== Excel出力機能 =====
+def export_to_excel(file_list: List[Path], all_images: List[Dict], output_path: Path):
+    """ファイルリストと画像をExcelに出力"""
+    wb = Workbook()
+    ws = wb.active
+    
+    # ヘッダー設定（A列のみ）
+    ws['A1'] = 'ファイルパス'
+    ws['A1'].font = Font(bold=True)
+    
+    # セルのサイズを100x100pxに設定
+    cell_size_px = 100
+    
+    # 行の高さを設定 (ピクセルを ポイント に変換: 1pt ≈ 1.33px)
+    row_height_pt = cell_size_px / 1.33
+    
+    # ファイルリストを処理
+    for row_idx, file_path in enumerate(file_list, start=2):  # 2行目から開始
+        # A列にファイルの絶対パス
+        ws[f'A{row_idx}'] = str(file_path.absolute())
+        
+        # 行の高さを設定
+        ws.row_dimensions[row_idx].height = row_height_pt
+        
+        # そのファイルに対応する画像を取得
+        file_images = [img for img in all_images if img.get('file_path') == file_path]
+        
+        # 画像を水平方向に配置
+        for img_idx, image_data in enumerate(file_images):
+            col_idx = img_idx + 2  # B列から開始（A列はファイルパス）
+            col_letter = get_column_letter(col_idx)
+            
+            # 列幅を設定 (ピクセルをExcel単位に変換)
+            ws.column_dimensions[col_letter].width = cell_size_px / 7  # 約14.3
+            
+            # 画像をリサイズしてExcelに挿入
+            resized_image_buffer = resize_image_for_excel(image_data['data'])
+            if resized_image_buffer:
                 try:
-                    resized_image = resize_image_for_excel(img_info['image'], 100)
-                    img_buffer = save_image_to_bytes(resized_image)
-                    excel_img = ExcelImage(img_buffer)
-                    excel_img.width = 100
-                    excel_img.height = 100
+                    excel_image = ExcelImage(resized_image_buffer)
+                    excel_image.width = cell_size_px
+                    excel_image.height = cell_size_px
                     
-                    # B列から順番に配置（B=2, C=3, D=4, E=5...）
-                    target_column = img_index + 2
-                    cell_position = f"{get_column_letter(target_column)}{current_row}"
-                    ws.add_image(excel_img, cell_position)
+                    # セルに画像を配置
+                    ws.add_image(excel_image, f'{col_letter}{row_idx}')
                     
                 except Exception as e:
-                    # 画像エラーの場合もセルに記録
-                    error_cell = ws.cell(row=current_row, column=img_index + 2, 
-                                       value=f"エラー")
-                    error_cell.alignment = Alignment(horizontal='center', vertical='center')
-            
-            # 行の高さ設定（100px ≈ 75ポイント）
-            ws.row_dimensions[current_row].height = 75
-            current_row += 1
-        
-        wb.save(output_path)
-        print(f"Excelファイルが正常に作成されました: {output_path}")
-        print(f"最大画像数: {max_images} 枚/ファイル")
-        
-    except Exception as e:
-        raise Exception(f"Excel出力中にエラーが発生しました: {e}")
+                    print(f"Excel画像挿入エラー: {e}")
+    
+    # Excelファイルを保存
+    wb.save(output_path)
+    
+    # ファイルサイズを取得
+    file_size = output_path.stat().st_size / 1024  # KB
+    print(f"✅ Excel出力完了: {output_path} ({file_size:.1f} KB)")
 
 # ===== メイン処理 =====
 def main():
-    """メイン処理"""
-    print("=" * 60)
-    print("       商業利用対応版文書画像抽出システム")
-    print("  .docx/.pdfファイルから全画像を抽出してExcel出力")
-    print("  ✅ 全ライブラリ商業利用可能 (MIT/Apache/HPND)")
-    print("=" * 60)
+    """メイン処理関数"""
+    print("🔍 文書画像抽出システム (PyMuPDF高性能版)")
+    print("=" * 50)
     
-    target_directory = "target"
-    output_file = "result.xlsx"
+    target_dir = Path("target")
     
-    start_time = time.time()
+    if not target_dir.exists():
+        print(f"❌ '{target_dir}' ディレクトリが見つかりません")
+        return
     
     try:
-        # Step 1: ファイル検索
-        print(f"\n🔍 ステップ1: ファイル検索中...")
-        print(f"   対象ディレクトリ: {target_directory}")
+        start_time = time.time()
         
-        files = find_files(target_directory)
+        # ステップ1: ファイルクロール
+        print("📂 ファイルクロール中...")
+        files = crawl_files(target_dir)
         
         if not files:
-            print("❌ 対象のファイルが見つかりませんでした。")
-            print(f"   {target_directory} ディレクトリに .docx または .pdf ファイルが存在することを確認してください。")
+            print("⚠️  対象ファイルが見つかりませんでした")
             return
         
-        docx_files = [f for f in files if f.suffix.lower() == '.docx']
-        pdf_files = [f for f in files if f.suffix.lower() == '.pdf']
+        print(f"📊 見つかったファイル: {len(files)}個")
+        for file_path in files:
+            print(f"  - {file_path}")
         
-        print(f"✅ 見つかったファイル:")
-        print(f"   📄 .docx ファイル: {len(docx_files)} 個")
-        print(f"   📄 .pdf ファイル: {len(pdf_files)} 個")
-        print(f"   📄 総ファイル数: {len(files)} 個")
+        # ステップ2: 画像抽出
+        print()
+        print("🖼️  画像抽出中...")
+        all_images = []
         
-        # Step 2: 画像抽出処理
-        print(f"\n🖼️  ステップ2: 画像抽出中...")
-        print(f"   📝 使用ライブラリ: pdfplumber (MIT License - 商業利用可能)")
-        
-        file_data = []
-        total_extracted_images = 0
-        
-        for i, file_path in enumerate(files, 1):
-            print(f"   処理中 ({i}/{len(files)}): {file_path.name}")
+        for file_path in files:
+            print(f"📄 処理中: {file_path.name}")
             
-            images = []
+            if file_path.suffix.lower() == '.docx':
+                images = extract_images_from_docx(file_path)
+            elif file_path.suffix.lower() == '.pdf':
+                images = extract_images_from_pdf(file_path)
+            else:
+                print(f"  ⚠️ 未対応の形式: {file_path.suffix}")
+                continue
             
-            try:
-                if file_path.suffix.lower() == '.docx':
-                    images = extract_images_from_docx(file_path)
-                elif file_path.suffix.lower() == '.pdf':
-                    images = extract_images_from_pdf(file_path)
-                
-                if images:
-                    print(f"     → 画像 {len(images)} 枚を抽出")
-                else:
-                    print(f"     → 画像が見つかりませんでした")
-                
-                file_data.append({
-                    'file_path': file_path.resolve(),
-                    'images': images,
-                    'image_count': len(images)
-                })
-                
-                total_extracted_images += len(images)
-                
-            except Exception as e:
-                print(f"     ❌ エラー: {e}")
-                # エラーファイルも記録（画像なし）
-                file_data.append({
-                    'file_path': file_path.resolve(),
-                    'images': [],
-                    'image_count': 0,
-                    'error': str(e)
-                })
+            all_images.extend(images)
+            print(f"  📊 抽出数: {len(images)}枚")
         
-        print(f"\n✅ 画像抽出完了: 総 {total_extracted_images} 枚")
+        # ステップ3: Excel出力
+        print()
+        print("📊 Excel出力中...")
+        output_path = Path("result.xlsx")
+        export_to_excel(files, all_images, output_path)
         
-        # Step 3: Excel出力
-        print(f"\n📊 ステップ3: Excel出力中...")
-        print(f"   出力ファイル: {output_file}")
+        # 結果表示
+        end_time = time.time()
+        processing_time = end_time - start_time
         
-        create_excel_with_images(file_data, output_file)
+        print()
+        print("🎉 処理完了！")
+        print(f"📈 処理結果:")
+        print(f"  - 処理ファイル数: {len(files)}個")
+        print(f"  - 抽出画像総数: {len(all_images)}枚")
+        print(f"  - 処理時間: {processing_time:.2f}秒")
+        print(f"  - 出力ファイル: {output_path}")
         
-        # 処理完了
-        elapsed_time = time.time() - start_time
-        print(f"\n🎉 処理完了!")
-        print(f"   処理時間: {elapsed_time:.2f} 秒")
-        print(f"   処理ファイル数: {len(files)}")
-        print(f"   抽出画像数: {total_extracted_images}")
-        print(f"   出力ファイル: {output_file}")
-        print(f"   ✅ 商業利用: 完全対応（全ライブラリ商業利用可能）")
-        
-    except KeyboardInterrupt:
-        print("\n⚠️ ユーザーにより処理が中断されました。")
-        sys.exit(1)
     except Exception as e:
-        print(f"\n❌ エラーが発生しました: {e}")
+        print(f"❌ エラーが発生しました: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
