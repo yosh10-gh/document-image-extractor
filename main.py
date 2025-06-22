@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-改良版メインプログラム: 文書画像抽出システム
+商業利用対応版: 文書画像抽出システム
 targetディレクトリを再帰的にクロールし、.docxと.pdfファイルから全ての画像を抽出してresult.xlsxに出力
+
+【ライセンス情報】
+使用ライブラリ:
+- python-docx: Apache 2.0 License (商業利用可能)
+- pdfplumber: MIT License (商業利用可能)
+- Pillow: HPND License (商業利用可能)
+- openpyxl: MIT License (商業利用可能)
+
+全て商業利用可能なライブラリのみを使用しています。
 """
 
 from pathlib import Path
@@ -12,7 +21,7 @@ import io
 import time
 from PIL import Image
 from docx import Document
-import fitz  # PyMuPDF
+import pdfplumber  # 商業利用可能な代替ライブラリ (MIT License)
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, Alignment
@@ -81,56 +90,86 @@ def extract_images_from_docx(docx_path: Path) -> List[Dict[str, Any]]:
     
     return images
 
-# ===== 画像抽出機能（.pdf） =====
+# ===== 画像抽出機能（.pdf）- pdfplumber版 =====
 def extract_images_from_pdf(pdf_path: Path) -> List[Dict[str, Any]]:
-    """.pdfファイルから画像を抽出"""
+    """.pdfファイルから画像を抽出 (pdfplumber使用 - 商業利用可能)"""
     if not pdf_path.exists():
         raise FileNotFoundError(f"ファイルが見つかりません: {pdf_path}")
     
     try:
-        pdf_doc = fitz.open(pdf_path)
         images = []
         image_index = 0
         
-        for page_num in range(len(pdf_doc)):
-            page = pdf_doc[page_num]
-            image_list = page.get_images(full=True)
-            
-            for img_index, img in enumerate(image_list):
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
                 try:
-                    xref = img[0]
-                    base_image = pdf_doc.extract_image(xref)
-                    image_bytes = base_image["image"]
-                    image_ext = base_image["ext"]
-                    
-                    image_stream = io.BytesIO(image_bytes)
-                    pil_image = Image.open(image_stream)
-                    
-                    # カラーモード正規化
-                    if pil_image.mode not in ('RGB', 'RGBA'):
-                        if pil_image.mode == 'CMYK':
-                            pil_image = pil_image.convert('RGB')
-                        elif pil_image.mode in ('P', 'L'):
-                            pil_image = pil_image.convert('RGB')
-                    
-                    image_info = {
-                        'image': pil_image.copy(),
-                        'format': image_ext.upper(),
-                        'size': pil_image.size,
-                        'index': image_index,
-                        'page': page_num + 1,
-                        'source_type': 'pdf'
-                    }
-                    
-                    images.append(image_info)
-                    image_index += 1
-                    image_stream.close()
-                    
+                    # pdfplumberで画像オブジェクトを取得
+                    for img_obj in page.images:
+                        try:
+                            # 画像のストリームデータを取得
+                            if hasattr(img_obj, 'stream') and img_obj['stream']:
+                                # 画像ストリームから画像データを抽出
+                                img_data = page.within_bbox(
+                                    (img_obj['x0'], img_obj['top'], 
+                                     img_obj['x1'], img_obj['bottom'])
+                                ).to_image(resolution=150)
+                                
+                                # PIL Imageに変換
+                                pil_image = img_data.original
+                                
+                                # カラーモード正規化
+                                if pil_image.mode not in ('RGB', 'RGBA'):
+                                    if pil_image.mode == 'CMYK':
+                                        pil_image = pil_image.convert('RGB')
+                                    elif pil_image.mode in ('P', 'L'):
+                                        pil_image = pil_image.convert('RGB')
+                                
+                                image_info = {
+                                    'image': pil_image.copy(),
+                                    'format': 'PNG',  # pdfplumberはPNG出力
+                                    'size': pil_image.size,
+                                    'index': image_index,
+                                    'page': page_num + 1,
+                                    'source_type': 'pdf'
+                                }
+                                
+                                images.append(image_info)
+                                image_index += 1
+                                
+                        except Exception as e:
+                            print(f"警告: PDF画像 (ページ {page_num + 1}) の処理中にエラー: {e}")
+                            continue
+                            
+                    # 代替方法: ページ全体を画像化して切り出し
+                    if not page.images:
+                        try:
+                            # ページ全体を画像化
+                            page_image = page.to_image(resolution=150)
+                            pil_image = page_image.original
+                            
+                            # 空白でない領域があるかチェック
+                            bbox = pil_image.getbbox()
+                            if bbox and (bbox[2] - bbox[0]) > 50 and (bbox[3] - bbox[1]) > 50:
+                                # 意味のあるサイズの画像があると判断
+                                image_info = {
+                                    'image': pil_image.copy(),
+                                    'format': 'PNG',
+                                    'size': pil_image.size,
+                                    'index': image_index,
+                                    'page': page_num + 1,
+                                    'source_type': 'pdf_page'
+                                }
+                                
+                                images.append(image_info)
+                                image_index += 1
+                                
+                        except Exception as e:
+                            print(f"警告: ページ画像化 (ページ {page_num + 1}) でエラー: {e}")
+                            continue
+                            
                 except Exception as e:
-                    print(f"警告: PDF画像 (ページ {page_num + 1}) の処理中にエラー: {e}")
+                    print(f"警告: PDFページ {page_num + 1} の処理中にエラー: {e}")
                     continue
-        
-        pdf_doc.close()
         
     except Exception as e:
         raise Exception(f"PDF ファイルの処理中にエラーが発生しました: {e}")
@@ -226,8 +265,9 @@ def create_excel_with_images(file_data: List[Dict[str, Any]], output_path: str =
 def main():
     """メイン処理"""
     print("=" * 60)
-    print("       改良版文書画像抽出システム")
+    print("       商業利用対応版文書画像抽出システム")
     print("  .docx/.pdfファイルから全画像を抽出してExcel出力")
+    print("  ✅ 全ライブラリ商業利用可能 (MIT/Apache/HPND)")
     print("=" * 60)
     
     target_directory = "target"
@@ -257,6 +297,7 @@ def main():
         
         # Step 2: 画像抽出処理
         print(f"\n🖼️  ステップ2: 画像抽出中...")
+        print(f"   📝 使用ライブラリ: pdfplumber (MIT License - 商業利用可能)")
         
         file_data = []
         total_extracted_images = 0
@@ -272,26 +313,30 @@ def main():
                 elif file_path.suffix.lower() == '.pdf':
                     images = extract_images_from_pdf(file_path)
                 
-                file_info = {
-                    'file_path': file_path.absolute(),
-                    'images': images
-                }
+                if images:
+                    print(f"     → 画像 {len(images)} 枚を抽出")
+                else:
+                    print(f"     → 画像が見つかりませんでした")
                 
-                file_data.append(file_info)
+                file_data.append({
+                    'file_path': file_path.resolve(),
+                    'images': images,
+                    'image_count': len(images)
+                })
+                
                 total_extracted_images += len(images)
-                
-                print(f"     → 画像 {len(images)} 枚を抽出")
                 
             except Exception as e:
                 print(f"     ❌ エラー: {e}")
-                # エラーが発生しても処理を継続
-                file_info = {
-                    'file_path': file_path.absolute(),
-                    'images': []
-                }
-                file_data.append(file_info)
+                # エラーファイルも記録（画像なし）
+                file_data.append({
+                    'file_path': file_path.resolve(),
+                    'images': [],
+                    'image_count': 0,
+                    'error': str(e)
+                })
         
-        print(f"✅ 画像抽出完了: 総 {total_extracted_images} 枚")
+        print(f"\n✅ 画像抽出完了: 総 {total_extracted_images} 枚")
         
         # Step 3: Excel出力
         print(f"\n📊 ステップ3: Excel出力中...")
@@ -299,25 +344,20 @@ def main():
         
         create_excel_with_images(file_data, output_file)
         
-        # 完了報告
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        
+        # 処理完了
+        elapsed_time = time.time() - start_time
         print(f"\n🎉 処理完了!")
         print(f"   処理時間: {elapsed_time:.2f} 秒")
         print(f"   処理ファイル数: {len(files)}")
         print(f"   抽出画像数: {total_extracted_images}")
         print(f"   出力ファイル: {output_file}")
-        print("\n📋 結果の確認:")
-        print(f"   {output_file} を開いて結果を確認してください。")
-        print(f"   A列にファイルパス、B列以降に全ての画像（100x100px）が表示されます。")
+        print(f"   ✅ 商業利用: 完全対応（全ライブラリ商業利用可能）")
         
+    except KeyboardInterrupt:
+        print("\n⚠️ ユーザーにより処理が中断されました。")
+        sys.exit(1)
     except Exception as e:
         print(f"\n❌ エラーが発生しました: {e}")
-        print("\n🔧 トラブルシューティング:")
-        print("   1. targetディレクトリが存在することを確認してください")
-        print("   2. 処理対象ファイルが破損していないか確認してください")
-        print("   3. 十分な空き容量があることを確認してください")
         sys.exit(1)
 
 if __name__ == "__main__":
